@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Quadle — four puzzles, one a day</title>
+<meta name="description" content="Four logic puzzles, a new set every day. Suns, Crowns, Path and Plots. No words, no accounts, works offline.">
+<meta name="theme-color" content="#0e1319">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="styles.css">
+<style>
+html,body{margin:0;min-height:100%;background:#0e1319;}
+@media (prefers-color-scheme: light){html,body{background:#f4f7fb;}}
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="bgfx"></div>
+
+  <!-- ============ HOME ============ -->
+  <section id="home">
+    <header class="brand">
+      <div class="mark" id="brandMark"></div>
+      <div class="brandtext">
+        <h1>Quadle</h1>
+        <p class="tagline">Four puzzles. A new set every day.</p>
+      </div>
+    </header>
+
+    <div class="streakcard">
+      <div class="streakbig" id="streakBig">0</div>
+      <div class="streakmeta">
+        <div class="lb"><span id="streakLbl">day streak</span> · <span id="streakSub">Nothing played today</span></div>
+        <div class="dots" id="streakDots"></div>
+      </div>
+    </div>
+
+    <div class="cards" id="cards"></div>
+
+    <div class="homefoot">
+      <button class="ghost" id="openSet">Settings</button>
+      <button class="ghost" id="openArchive">Archive</button>
+      <button class="ghost" id="shareBtn">Share</button>
+    </div>
+    <div class="homefoot">
+      <button class="ghost" id="practiceBtn">Practice — endless boards</button>
+    </div>
+    <div class="daynav"><span id="dayLabel">—</span></div>
+  </section>
+
+  <!-- ============ PLAY ============ -->
+  <section id="play" hidden>
+    <div class="playtop">
+      <button id="backBtn" class="icon" aria-label="Back">‹</button>
+      <span id="modeTag" class="tag">Today</span>
+      <span id="label">—</span>
+      <span id="timer">0:00</span>
+      <button id="helpBtn" class="icon" aria-label="How to play">?</button>
+    </div>
+    <div id="board"></div>
+    <div id="msg"></div>
+    <div class="ctrl">
+      <button id="newBtn">New</button>
+      <button id="resetBtn">Reset</button>
+      <button id="hintBtn">Hint</button>
+      <button id="sizeBtn">Size</button>
+      <button id="cbBtn">Pattern</button>
+    </div>
+    <div id="hint"></div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <div id="setWrap" hidden>
+    <div class="panel">
+      <div class="panelhead"><h2>Settings</h2><button class="icon" id="closeSet">✕</button></div>
+      <label class="row"><span>Dark mode</span><input type="checkbox" id="optDark"></label>
+      <label class="row"><span>Sound</span><input type="checkbox" id="optSound" checked></label>
+      <label class="row"><span>Animation</span><input type="checkbox" id="optMotion" checked></label>
+      <label class="row"><span>Patterns on colours</span><input type="checkbox" id="optPat"></label>
+      <label class="row"><span>Help improve the puzzles</span><input type="checkbox" id="optStats"></label>
+      <div class="row col">
+        <small id="statsNote">Records only which puzzle you stopped on. Nothing else, and nothing personal.</small>
+      </div>
+      <div class="row col">
+        <span>Backup code</span>
+        <code id="backupCode">—</code>
+        <small>Keep this. It restores your streak on a new phone.</small>
+        <div class="minirow">
+          <button class="ghost sm" id="copyCode">Copy</button>
+          <button class="ghost sm" id="restoreCode">Restore</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script src="app.js"></script>
+<script>
+// Only the website needs the offline cache. Inside the app the files are
+// already on the phone, so the service worker would just get in the way.
+if ("serviceWorker" in navigator && location.hostname !== "appassets.androidplatform.net")
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+</script>
+</body>
+</html>
