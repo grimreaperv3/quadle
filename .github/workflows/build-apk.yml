@@ -1,0 +1,109 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "privacy.html"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASSWORD || 'quadle123' }}
+      KEY_PASS: ${{ secrets.KEY_PASSWORD || 'quadle123' }}
+      KEY_ALIAS: quadle
+
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up the Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      # The whole web app is copied inside the APK. Nothing is downloaded at
+      # run time, so there is no browser bar and it works with no internet.
+      - name: Pack the web app into the APK
+        run: |
+          DEST=android/app/src/main/assets
+          rm -rf "$DEST"
+          mkdir -p "$DEST/data" "$DEST/icons"
+          cp index.html styles.css app.js manifest.webmanifest "$DEST/"
+          cp data/*.json "$DEST/data/"
+          cp icons/*.png "$DEST/icons/"
+          echo "--- packed ---"
+          find "$DEST" -type f | sed 's/^/  /'
+          du -sh "$DEST"
+
+      - name: Get the signing key
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_B64 }}" ]; then
+            echo "Using the saved signing key."
+            echo "${{ secrets.ANDROID_KEYSTORE_B64 }}" | base64 -d > android.keystore
+          else
+            echo "No saved key - making a fresh one."
+            echo "Save android.keystore from the artifacts, or updates will not install over the old app."
+            keytool -genkeypair -v \
+              -keystore android.keystore \
+              -alias "$KEY_ALIAS" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$KEYSTORE_PASS" \
+              -keypass "$KEY_PASS" \
+              -dname "CN=Cooperkite Games, OU=Games, O=Cooperkite Games, L=Delhi, ST=Delhi, C=IN"
+          fi
+          ls -la android.keystore
+
+      - name: Build the APK and the Play bundle
+        working-directory: android
+        env:
+          KEYSTORE_FILE: ${{ github.workspace }}/android.keystore
+        run: gradle assembleRelease bundleRelease --no-daemon --stacktrace
+
+      - name: Collect the files
+        if: always()
+        run: |
+          mkdir -p out
+          find android -name "*.apk" -o -name "*.aab" | while read f; do
+            cp "$f" out/ && echo "  $f"
+          done
+          ls -la out || true
+
+      - name: Keep the files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quadle-android
+          path: |
+            out/*
+            android.keystore
+          if-no-files-found: warn
+
+      - name: Publish a download link
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          name: Latest APK
+          body: |
+            Tap the .apk below on your phone to install.
+
+            The whole game is inside the file. No internet needed, no browser bar.
+          files: |
+            out/*.apk
+          fail_on_unmatched_files: false
