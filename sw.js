@@ -1,6 +1,6 @@
 /* Quadle service worker — cache everything on first visit, then run offline.
    Bump CACHE when you change any file, or phones will keep the old copy. */
-const CACHE = "quadle-v2";
+const CACHE = "quadle-v4";
 const FILES = [
   "./","./index.html","./styles.css","./app.js","./manifest.webmanifest",
   "./data/practice-boards.json","./data/daily-boards.json",

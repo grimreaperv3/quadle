@@ -94,7 +94,11 @@ Difficulty climbs across the week:
 | Crowns | 6x6, level 1 | 8x8, level 3 |
 | Suns | 7 links | 4 links |
 | Plots | 5x5, level 1 | 7x7, level 2 |
-| Path | 5x5, 8 stops | 6x6, 7 stops |
+| Path | 3.5 squares per clue | 5.3 squares per clue |
+
+Path is graded by how many squares you must work out per numbered stop, not by
+grid size. A bigger grid with more stops can be easier than a small sparse one,
+which is why sorting it by size gave a dip midweek.
 
 Every board was checked before it went in: exactly one solution, and reachable
 by pure logic. No board in the pack ever needs a guess.
