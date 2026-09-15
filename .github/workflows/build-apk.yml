@@ -29,8 +29,23 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # By default this action tries to install an SDK package called "tools",
+      # which Google has removed. Passing an empty package list skips that and
+      # lets Gradle fetch exactly what it needs instead.
       - name: Set up the Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ""
+
+      - name: Make sure the SDK pieces are present
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKM" ]; then
+            yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+            "$SDKM" "platforms;android-34" "build-tools;34.0.0" || true
+          fi
+          ls "$SDK/platforms" 2>/dev/null || echo "no platforms dir yet - Gradle will fetch them"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
