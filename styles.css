@@ -1,4 +1,6 @@
 /* ================= shell ================= */
+#root, #root *, #root *::before, #root *::after{ box-sizing:border-box; }
+
 html,body{min-height:100%;}
 #root{
   --given-fallback:#eef1f6;
@@ -65,9 +67,15 @@ html,body{min-height:100%;}
 .streakmeta{flex:1;}
 .streakmeta .lb{font-size:12px;opacity:.75;}
 .streakmeta .dots{display:flex;gap:5px;margin-top:8px;}
-.streakmeta .dots i{width:19px;height:19px;border-radius:6px;background:rgba(255,255,255,.16);
-  font:700 10px/19px system-ui;text-align:center;font-style:normal;color:rgba(255,255,255,.55);}
-.streakmeta .dots i.on{background:#fff;color:#26313F;}
+.streakmeta .dots{gap:4px;}
+.streakmeta .dots i{
+  width:30px;padding:3px 0 4px;border-radius:8px;background:rgba(255,255,255,.12);
+  font:600 12px/1 system-ui;text-align:center;font-style:normal;
+  color:rgba(255,255,255,.45);display:flex;flex-direction:column;align-items:center;gap:2px;}
+.streakmeta .dots i b{font:700 8.5px system-ui;opacity:.85;}
+.streakmeta .dots i.on{background:rgba(255,255,255,.95);color:#C79A1E;}
+.streakmeta .dots i.on b{color:#26313F;}
+.streakmeta .dots i.next{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.6);}
 
 .cards{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:10px;flex:1;min-height:0;}
 .gcard{
@@ -108,6 +116,15 @@ html,body{min-height:100%;}
 .daynav button{width:28px;height:28px;border-radius:9px;background:var(--surface);
   border:1px solid var(--line);color:var(--muted);cursor:pointer;font:600 15px/1 system-ui;}
 .pnote{font:400 12.5px/1.5 system-ui;color:var(--muted);margin:2px 0 6px;}
+.winbox{text-align:center;padding:6px 0 14px;}
+.wtick{width:58px;height:58px;margin:0 auto 12px;border-radius:50%;
+  background:var(--ink);color:var(--surface);font:700 30px/58px system-ui;
+  animation:tickPop .45s cubic-bezier(.2,1.5,.4,1) both;}
+.wttl{font:700 21px system-ui;color:var(--text);}
+.wtime{font:800 40px system-ui;color:var(--ink);margin:6px 0 2px;
+  font-variant-numeric:tabular-nums;}
+.wsub{font:500 12.5px system-ui;color:var(--muted);}
+@keyframes tickPop{0%{transform:scale(.3);opacity:0}60%{transform:scale(1.12);opacity:1}100%{transform:scale(1)}}
 .rules{margin:4px 0 0;padding-left:20px;}
 .rules li{font:400 13.5px/1.6 system-ui;color:var(--text);margin:7px 0;}
 .pbody{max-height:62vh;overflow-y:auto;}
@@ -162,16 +179,20 @@ input[type=checkbox]:checked::after{transform:translateX(18px);}
 .grid.airy{background:transparent;gap:0;padding:0;
   border:1.5px solid var(--gridline);border-radius:10px;overflow:hidden;}
 .grid.airy .cell{border-right:1px dashed var(--gridline);border-bottom:1px dashed var(--gridline);}
+.grid.map{background:transparent;gap:0;padding:0;border:3px solid #1C1C1C;border-radius:6px;overflow:hidden;}
+.grid.map .cell{border:0;}
 .cell{background:var(--cell);color:var(--text);display:flex;align-items:center;
   justify-content:center;font:700 19px system-ui;cursor:pointer;position:relative;}
 .given{background:var(--given-fallback,#eef1f6);}
 .given{background:color-mix(in srgb,var(--accent) 14%, var(--cell));}
 .given svg{filter:saturate(1.05);}
-.edges{position:absolute;inset:0;pointer-events:none;z-index:6;}
-.edge{position:absolute;width:20px;height:20px;border-radius:50%;background:var(--surface);
-  border:2px solid var(--text);font:800 12px/1 system-ui;color:var(--text);
-  display:flex;align-items:center;justify-content:center;
-  transform:translate(-50%,-50%);box-shadow:0 1px 3px rgba(0,0,0,.25);
+
+.edges{position:absolute;inset:0;pointer-events:none;z-index:7;overflow:visible;}
+.edge{position:absolute;width:22px;height:22px;border-radius:50%;
+  background:var(--surface);border:2px solid var(--text);
+  font:800 14px/18px system-ui;color:var(--text);text-align:center;
+  transform:translate(-50%,-50%);
+  box-shadow:0 1px 3px rgba(0,0,0,.3);
   animation:badgeIn .3s cubic-bezier(.2,1.5,.4,1) both;}
 /* error marking */
 .cell.err::after{content:"";position:absolute;inset:0;border:3px solid #b3261e;
@@ -184,7 +205,7 @@ input[type=checkbox]:checked::after{transform:translateX(18px);}
   box-sizing:border-box;z-index:5;animation:errpulse .85s ease-in-out infinite;}
 .crown{width:50%;height:50%;border-radius:50%;background:#0C1118;
   box-shadow:0 0 0 3px #fff, 0 1px 3px rgba(0,0,0,.4);z-index:3;}
-.xmark{color:#25313F !important;}
+.xmark{color:#3A4250 !important;font:700 17px system-ui !important;}
 .xmark{font:700 15px system-ui;color:#41505f;opacity:.85;z-index:3;}
 .pat{position:absolute;inset:0;pointer-events:none;opacity:0;z-index:1;}
 .showpat .pat{opacity:.5;}
@@ -219,6 +240,17 @@ input[type=checkbox]:checked::after{transform:translateX(18px);}
 .cell.pop svg{animation:markIn .26s cubic-bezier(.2,1.5,.45,1) both;}
 @keyframes markIn{0%{opacity:0;transform:scale(.55)}
                   100%{opacity:1;transform:scale(1)}}
+@keyframes crownDrop{
+  0%{opacity:0;transform:translateY(-34%) scale(.6)}
+  55%{opacity:1;transform:translateY(6%) scale(1.06)}
+  78%{transform:translateY(-2%) scale(.99)}
+  100%{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes regionFlash{
+  0%{box-shadow:inset 0 0 0 0 rgba(255,255,255,0)}
+  35%{box-shadow:inset 0 0 0 40px rgba(255,255,255,.42)}
+  100%{box-shadow:inset 0 0 0 40px rgba(255,255,255,0)}}
+.cell.pop svg{animation:crownDrop .34s cubic-bezier(.25,1.2,.35,1) both;}
+.cell.flash{animation:regionFlash .55s ease-out;}
 @keyframes winWave{0%{transform:scale(1)}30%{transform:scale(1.13)}100%{transform:scale(1)}}
 @keyframes shake{0%,100%{transform:translateX(0)}
                  25%{transform:translateX(-3px)}55%{transform:translateX(3px)}
@@ -228,11 +260,19 @@ input[type=checkbox]:checked::after{transform:translateX(18px);}
                 100%{box-shadow:0 0 0 14px rgba(0,0,0,0)}}
 @keyframes badgeIn{from{opacity:0;transform:translate(-50%,-50%) scale(.4)}
                    to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
-@keyframes rectIn{from{opacity:0;transform:scale(.82)}to{opacity:1;transform:scale(1)}}
+@keyframes rectIn{
+  0%{opacity:0;transform:scale(.72)}
+  60%{opacity:1;transform:scale(1.04)}
+  100%{opacity:1;transform:scale(1)}}
+@keyframes fillIn{from{opacity:0}to{opacity:1}}
 .grid.shake{animation:shake .3s;}
 .grid.won{animation:glow .8s ease-out 1;border-radius:10px;}
 #msg{animation:msgIn .25s both;}
-.rect.fresh{animation:rectIn .24s cubic-bezier(.2,1.4,.4,1) both;}
+.rect{transition:border-color .2s ease;}
+.rect.fresh{animation:rectIn .3s cubic-bezier(.22,1.35,.36,1) both;
+  transform-origin:var(--ox,50%) var(--oy,50%);}
+.cell.filled{animation:fillIn .26s ease-out both;}
+.sel{transition:none;}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;
     transition-duration:.01ms !important;}

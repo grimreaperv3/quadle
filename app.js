@@ -4,7 +4,12 @@
 /* board data is fetched at start-up, then cached offline by the service worker */
 let BOARDS=null, DAILY=null;
 const E=-1, $=s=>document.querySelector(s);
-const PALETTE=["#6831D7","#9A5FA9","#D73147","#BBA0E3","#D7AB31","#C5E7E5","#5FA995","#EAF1BA"];
+/* I had this backwards. In Crowns the RULE is the region, and a region is a
+   single blob with a heavy outline around it — you never match colours across
+   the board. So the outline carries the meaning and the colour is decoration.
+   That is why a pale family works here, and why the outlines below are thick.
+   Pattern mode is still there for anyone who wants a second signal. */
+const PALETTE=["#BBA6E8","#FFCB97","#9DC2F2","#B6E3A0","#E2E2E2","#FF9A88","#E7F19C","#C6B49B"];
 const PATTERNS=[
  "repeating-linear-gradient(45deg,#0003 0 4px,transparent 4px 9px)",
  "repeating-linear-gradient(-45deg,#0003 0 4px,transparent 4px 9px)",
@@ -38,18 +43,54 @@ function theme(){
 }
 let cur=null, t0=0, tick=null, solved=false;
 let errs=new Set(), tips=new Set(), area=new Set(), errTimer=null;
-let entering=false, touched=null, winning=false, shookFor="";
+let entering=false, touched=null, winning=false, shookFor="", flashRegion=null;
+let boardToken=0;
+function later(fn,ms){
+  const mine=boardToken;
+  return setTimeout(()=>{ if(mine===boardToken) fn(); }, ms);
+}
+function newBoardToken(){ boardToken++; }
 function animate(d,r,c,key){
   if(entering){ d.style.animation="cellEnter .28s "+((r+c)*20)+"ms both"; return; }
   if(winning){ d.style.animation="winWave .5s "+((r+c)*40)+"ms both"; return; }
   if(touched===key) d.classList.add("pop");     // one square, one time
 }
+function winPanel(){
+  const secs=((Date.now()-t0)/1000)|0;
+  const mins=((secs/60)|0)+":"+String(secs%60).padStart(2,"0");
+  const used=(cur && cur.hintsUsed)||0;
+  const done=["tango","crown","path","patch"].filter(isDone).length;
+  panel("", (body,p)=>{
+    p.querySelector(".panelhead").style.display="none";
+    const w=document.createElement("div"); w.className="winbox";
+    w.innerHTML=
+      '<div class="wtick">✓</div>'+
+      '<div class="wttl">'+GAMES[game].name+' solved</div>'+
+      '<div class="wtime">'+mins+'</div>'+
+      '<div class="wsub">'+(used?used+" hint"+(used>1?"s":"")+" used":"no hints")+
+        (mode==="daily"? " · "+done+" of 4 done today" : "")+'</div>';
+    body.appendChild(w);
+    const row=document.createElement("div"); row.className="minirow";
+    if(mode==="daily"){
+      const sh=document.createElement("button"); sh.className="ghost sm"; sh.textContent="Share";
+      sh.onclick=()=>{ p.remove(); openShare(); };
+      row.appendChild(sh);
+    }
+    const hm=document.createElement("button"); hm.className="ghost sm";
+    hm.textContent = (mode==="daily" && done<4) ? "Next puzzle" : "Home";
+    hm.onclick=()=>{ p.remove(); goHome(); };
+    row.appendChild(hm);
+    body.appendChild(row);
+  });
+}
 function celebrate(){
   markSolved();
+  saveProgress();
   blip(660,.1,"triangle"); setTimeout(()=>blip(880,.14,"triangle"),110);
   winning=true; redraw();
   const g=document.querySelector(".grid"); if(g) g.classList.add("won");
-  setTimeout(()=>{ winning=false; }, 1200);
+  later(()=>{ winning=false; }, 1200);
+  later(()=>{ if(solved) winPanel(); }, 900);
 }
 function shakeBoard(tag){
   if(shookFor===tag) return;   // one shake per mistake, not one per redraw
@@ -69,7 +110,7 @@ function setMsg(t,cls){ const m=$("#msg"); m.textContent=t||""; m.className=cls|
 function deferCheck(fn){ clearTimeout(errTimer); clearErrors();
   errTimer=setTimeout(()=>{ fn(); redraw(); }, GRACE); }
 function redraw(){ ({tango:drawTango,crown:drawCrown,path:drawPath,patch:drawPatch})[game]();
-  requestAnimationFrame(()=>{ touched=null; }); }
+  requestAnimationFrame(()=>{ touched=null; flashRegion=null; }); }
 function cellPx(cols){ const w=Math.min(392, window.innerWidth-28); return Math.floor((w-2*(cols+1))/cols); }
 function startTimer(){ t0=Date.now(); clearInterval(tick);
   tick=setInterval(()=>{ if(solved) return; const s=((Date.now()-t0)/1000)|0;
@@ -198,14 +239,14 @@ function makeTango(n){
 }
 function newTango(){
   const n=size.tango, t=performance.now();
-  if(mode==="daily"){
+  if(mode==="daily"||mode==="archive"){
     const b=DAILY.tango[slot()];
     cur={n:b.n,puzzle:b.puzzle.map(r=>r.slice()),solution:b.sol,cons:b.cons};
   } else cur=makeTango(n);
   const ms=Math.round(performance.now()-t);
   cur.state=cur.puzzle.map(r=>r.slice());
   let links=Object.keys(cur.cons).length;
-  $("#label").textContent=(mode==="daily"?dayName()+" · Suns":"Suns "+cur.n+"×"+cur.n)+" · "+links+" links";
+  $("#label").textContent=(mode==="learn"?"Suns · practice":dayName()+" · Suns")+" · "+links+" links";
   $("#hint").textContent="Equal suns and stars per row and column · never three in a row";
   drawTango();
 }
@@ -244,6 +285,7 @@ function tangoErrors(){
   return {bad,zone,why};
 }
 function drawTango(){
+  if(!cur||!cur.cons) return;
   const n=cur.n,px=cellPx(n),b=$("#board");
   b.innerHTML=""; b.className="";
   const g=document.createElement("div");
@@ -263,28 +305,30 @@ function drawTango(){
     if(cur.puzzle[r][c]===E) d.onclick=()=>{
       const x=cur.state[r][c];
       cur.state[r][c]= x===E?1 : x===1?0 : E;
-      touched=key; tips=new Set(); setMsg(""); deferCheck(checkTango); drawTango();
+      touched=key; tips=new Set(); setMsg(""); deferCheck(checkTango); drawTango(); saveProgress();
     };
     g.appendChild(d);
   }
   b.appendChild(g);
-  /* Measure where the squares actually landed and drop each badge exactly on the
-     line between its two squares. No arithmetic guessing about gaps or padding. */
+  /* Badges sit in the gap BETWEEN two squares, on a layer over the grid.
+     Every square is exactly px wide now, so these positions are exact and the
+     badge is always inside the board — nothing to clip. */
   const layer=document.createElement("div"); layer.className="edges";
-  b.appendChild(layer);
-  const boardBox=b.getBoundingClientRect();
+  const PAD=2, GAP=2, step=px+GAP;
   for(const [k,t] of Object.entries(cur.cons)){
     const [a,bb]=k.split("|"),[r1,c1]=a.split(",").map(Number),[r2,c2]=bb.split(",").map(Number);
-    const A=cells[r1+","+c1], B2=cells[r2+","+c2];
-    if(!A||!B2) continue;
-    const ra=A.getBoundingClientRect(), rb=B2.getBoundingClientRect();
-    const x=((ra.left+ra.right)/2 + (rb.left+rb.right)/2)/2 - boardBox.left;
-    const y=((ra.top+ra.bottom)/2 + (rb.top+rb.bottom)/2)/2 - boardBox.top;
-    const e=document.createElement("div"); e.className="edge";
+    const horiz = (r1===r2);
+    const x = horiz ? PAD + c1*step + px + GAP/2
+                    : PAD + c1*step + px/2;
+    const y = horiz ? PAD + r1*step + px/2
+                    : PAD + r1*step + px + GAP/2;
+    const e=document.createElement("div");
+    e.className="edge";
     e.style.left=x+"px"; e.style.top=y+"px";
-    e.textContent = t==="="?"=":"×";
+    e.textContent = t==="=" ? "=" : "\u00D7";
     layer.appendChild(e);
   }
+  b.appendChild(layer);
 }
 function checkTango(){
   const {bad,zone,why}=tangoErrors();
@@ -355,19 +399,20 @@ function crownIcon(px){
   svg.style.zIndex="3";
   const p=document.createElementNS(NS,"path");
   p.setAttribute("d","M7 27 L7 13 L14 19 L20 9 L26 19 L33 13 L33 27 Z");
-  p.setAttribute("fill","#0C1118"); p.setAttribute("stroke","#FFFFFF");
-  p.setAttribute("stroke-width","2.4"); p.setAttribute("stroke-linejoin","round");
+  const fill="#E8A519", line="#2E2410";
+  p.setAttribute("fill",fill); p.setAttribute("stroke",line);
+  p.setAttribute("stroke-width","2.8"); p.setAttribute("stroke-linejoin","round");
   svg.appendChild(p);
   const b=document.createElementNS(NS,"rect");
   b.setAttribute("x","7"); b.setAttribute("y","28"); b.setAttribute("width","26");
   b.setAttribute("height","5"); b.setAttribute("rx","2");
-  b.setAttribute("fill","#0C1118"); b.setAttribute("stroke","#FFFFFF"); b.setAttribute("stroke-width","2.4");
+  b.setAttribute("fill",fill); b.setAttribute("stroke",line); b.setAttribute("stroke-width","2.8");
   svg.appendChild(b);
   return svg;
 }
 /* thick line wherever two different colours meet, like a real region map */
 function regionEdge(d,r,c,reg,n){
-  const B="3px solid #10151C", T="1px solid rgba(0,0,0,.16)";
+  const B="3px solid #1C1C1C", T="1px solid rgba(0,0,0,.22)";
   d.style.borderTop    = (r===0   || reg[r-1][c]!==reg[r][c]) ? B : T;
   d.style.borderBottom = (r===n-1 || reg[r+1][c]!==reg[r][c]) ? B : T;
   d.style.borderLeft   = (c===0   || reg[r][c-1]!==reg[r][c]) ? B : T;
@@ -377,11 +422,11 @@ function regionEdge(d,r,c,reg,n){
 /* ================= CROWNS ================= */
 function newCrown(){
   let b;
-  if(mode==="daily"){ b=DAILY.crown[slot()]; size.crown=b.n; }
+  if(mode==="daily"||mode==="archive"){ b=DAILY.crown[slot()]; size.crown=b.n; }
   else { const pool=BOARDS.crown[String(size.crown)]; b=pool[(Math.random()*pool.length)|0]; }
   const n=b.n;
   cur={n,regions:b.regions,sol:b.sol,tier:b.tier,marks:Array.from({length:n},()=>Array(n).fill(0))};
-  $("#label").textContent=(mode==="daily"?dayName()+" · Crowns":"Crowns "+n+"×"+n)+" · level "+b.tier;
+  $("#label").textContent=(mode==="learn"?"Crowns · practice":dayName()+" · Crowns · level "+b.tier);
   $("#hint").textContent="One crown per row, column and colour · none touching";
   drawCrown();
 }
@@ -405,11 +450,12 @@ function crownErrors(){
   return {bad,zone,why,count:cw.length};
 }
 function drawCrown(){
+  if(!cur||!cur.regions) return;
   const n=cur.n,px=cellPx(n),b=$("#board");
   b.innerHTML=""; b.className=showPat?"showpat":"";
   const g=document.createElement("div");
-  g.className="grid airy"; g.style.gridTemplateColumns=`repeat(${n},${px}px)`;
-  b.style.width=(n*px+3)+"px";
+  g.className="grid map"; g.style.gridTemplateColumns=`repeat(${n},${px}px)`;
+  b.style.width=(n*px+6)+"px";
   for(let r=0;r<n;r++)for(let c=0;c<n;c++){
     const key=r+","+c;
     const d=document.createElement("div");
@@ -420,17 +466,26 @@ function drawCrown(){
     if(state.dark) d.style.background = "color-mix(in srgb,"+base+" 72%, #0E1319)";
     regionEdge(d,r,c,cur.regions,n);
     edgeStyle(d,key,area); animate(d,r,c,key);
+    if(flashRegion!==null && cur.regions[r][c]===flashRegion && cur.marks[r][c]!==2)
+      d.classList.add("flash");
     const pat=document.createElement("div");
     pat.className="pat"; pat.style.background=PATTERNS[cur.regions[r][c]%8];
     d.appendChild(pat);
     const m=cur.marks[r][c];
-    if(m===1){ const x=document.createElement("div"); x.className="xmark"; x.textContent="•"; d.appendChild(x); }
+    if(m===1){ const x=document.createElement("div"); x.className="xmark"; x.textContent="✕";
+      d.appendChild(x); }
     if(m===2) d.appendChild(crownIcon(px));
-    d.onclick=()=>{ cur.marks[r][c]=(cur.marks[r][c]+1)%3; touched=key; tips=new Set(); setMsg("");
-      deferCheck(checkCrown); drawCrown(); };
+    d.onclick=()=>{
+      cur.marks[r][c]=(cur.marks[r][c]+1)%3;
+      touched=key;
+      flashRegion = (cur.marks[r][c]===2) ? cur.regions[r][c] : null;
+      tips=new Set(); setMsg("");
+      deferCheck(checkCrown); drawCrown(); saveProgress();
+    };
     g.appendChild(d);
   }
   b.appendChild(g);
+  requestAnimationFrame(()=>{ touched=null; flashRegion=null; });
 }
 function checkCrown(){
   const n=cur.n,{bad,zone,why,count}=crownErrors();
@@ -473,15 +528,16 @@ function hintCrown(){
 /* ================= PATH ================= */
 function newPath(){
   let b;
-  if(mode==="daily"){ b=DAILY.path[slot()]; size.path=b.h; }
+  if(mode==="daily"||mode==="archive"){ b=DAILY.path[slot()]; size.path=b.h; }
   else { const pool=BOARDS.path[size.path+"x"+size.path]; b=pool[(Math.random()*pool.length)|0]; }
   cur={h:b.h,w:b.w,cps:b.cps.map(p=>p.slice()),sol:b.sol.map(p=>p.slice()),path:[],drag:false};
-  $("#label").textContent=(mode==="daily"?dayName()+" · Path":"Path "+b.h+"×"+b.w)+" · "+b.cps.length+" stops";
+  $("#label").textContent=(mode==="learn"?"Path · practice":dayName()+" · Path · "+b.cps.length+" stops");
   $("#hint").textContent="One line through every square, numbers in order";
   drawPath();
 }
 function cpIndex(r,c){ return cur.cps.findIndex(p=>p[0]===r&&p[1]===c); }
 function drawPath(){
+  if(!cur||!cur.cps) return;
   const n=cur.w,px=cellPx(n),b=$("#board");
   b.innerHTML=""; b.className="";
   const g=document.createElement("div");
@@ -516,7 +572,29 @@ function rewindTo(r,c){
   const i=cur.path.findIndex(q=>q[0]===r&&q[1]===c);
   if(i<0) return false;
   cur.path=cur.path.slice(0,i+1); clearErrors(); tips=new Set();
-  drawPath(); checkPath(); return true;
+  drawPath(); checkPath(); saveProgress(); return true;
+}
+/* A finger moving quickly skips over squares between samples. Walk the line
+   across them one step at a time so the path follows the finger instead of
+   stalling. */
+function walkTo(tr,tc){
+  for(let guard=0; guard<64; guard++){
+    const p=cur.path;
+    if(!p.length){ extend(tr,tc); return; }
+    const [lr,lc]=p[p.length-1];
+    if(lr===tr && lc===tc) return;
+    const back=p.findIndex(q=>q[0]===tr&&q[1]===tc);
+    if(back>=0){ cur.path=p.slice(0,back+1); clearErrors(); drawPath(); checkPath(); saveProgress(); return; }
+    const dr=Math.sign(tr-lr), dc=Math.sign(tc-lc);
+    const before=p.length;
+    if(dr && !dc) extend(lr+dr,lc);
+    else if(dc && !dr) extend(lr,lc+dc);
+    else if(dr && dc){
+      extend(lr,lc+dc);                       // try sideways first
+      if(cur.path.length===before) extend(lr+dr,lc);
+    }
+    if(cur.path.length===before) return;      // blocked, stop here
+  }
 }
 function extend(r,c){
   const p=cur.path;
@@ -532,16 +610,40 @@ function extend(r,c){
     if(i!==hit){ errs=new Set([r+","+c]);
       const need=cur.cps[hit]; if(need) area=new Set([need.join(",")]);
       setMsg("That's stop "+(i+1)+" — you need "+(hit+1)+" next.","err"); drawPath(); return; } }
-  clearErrors(); tips=new Set(); touched=r+","+c; p.push([r,c]); drawPath(); checkPath();
+  clearErrors(); tips=new Set(); touched=r+","+c; p.push([r,c]); drawPath(); checkPath(); saveProgress();
 }
 function checkPath(){
   const total=cur.h*cur.w; clearErrors();
-  if(cur.path.length<total){ setMsg(cur.path.length+" of "+total+" squares."); return; }
+  if(cur.path.length<total){
+    const left=total-cur.path.length;
+    // near the end, show exactly which squares are still empty
+    if(left<=4){
+      const on=new Set(cur.path.map(p=>p[0]+","+p[1]));
+      const miss=[];
+      for(let r=0;r<cur.h;r++)for(let c=0;c<cur.w;c++)
+        if(!on.has(r+","+c)) miss.push(r+","+c);
+      area=new Set(miss);
+      setMsg(left===1 ? "One square still empty — it is marked."
+                      : left+" squares still empty, marked on the board.");
+      drawPath();
+      return;
+    }
+    setMsg(cur.path.length+" of "+total+" squares."); return;
+  }
   let hit=0; for(const q of cur.path) if(cpIndex(q[0],q[1])>=0) hit++;
   const last=cur.path[cur.path.length-1],lastCp=cur.cps[cur.cps.length-1];
   if(hit===cur.cps.length&&last[0]===lastCp[0]&&last[1]===lastCp[1]){
-    if(!solved){ solved=true; setMsg(winLine()); celebrate(); } }
-  else setMsg("Every square covered, but it doesn't end on the last number.","err");
+    if(!solved){ solved=true; setMsg(winLine()); celebrate(); }
+  } else if(hit!==cur.cps.length){
+    const nextCp=cur.cps[hit];
+    if(nextCp) area=new Set([nextCp.join(",")]);
+    setMsg("Every square covered, but you skipped number "+(hit+1)+".","err");
+    drawPath();
+  } else {
+    area=new Set([lastCp.join(",")]);
+    setMsg("Every square covered, but the line must END on number "+cur.cps.length+".","err");
+    drawPath();
+  }
 }
 function hintPath(){
   const sol=cur.sol;
@@ -732,9 +834,13 @@ function makePatch(n,maxTier){
   }
   return null;
 }
-const PATCHCOLS=["#E4572E","#17A398","#3A7CA5","#8E5572","#E8A33D","#5B8C5A",
-                 "#8E5DE5","#D81E5B","#2A9D8F","#C97B27","#4361EE","#7A9E3F",
-                 "#B5651D","#00798C","#6A4C93","#BC4749","#468FAF","#A47148"];
+/* In Plots, colour carries no rule — the badge shape and the number do. So these
+   only need to be calm, and dark enough for the white number to read on them
+   (4.6:1 at worst). Crowns is the opposite: there the colour IS the rule, so that
+   palette is checked for colour blindness instead. */
+const PATCHCOLS=["#C34F37","#2A7F7A","#3D6D96","#8A5972","#966C2D","#587D54",
+                 "#7B5BC3","#B83E5F","#348178","#9C682B","#4961B8","#637C40",
+                 "#9C5A28","#2E6E7E","#5F4980","#A34648","#437A96","#8D6A4A"];
 function shapeBadge(shape,label,col,px){
   const S=Math.max(24,Math.min(44, Math.round((px||60)*0.72)));
   const NS="http://www.w3.org/2000/svg";
@@ -776,7 +882,7 @@ function shapeBadge(shape,label,col,px){
 function newPatch(){
   let n=size.patch; const t=performance.now();
   let p;
-  if(mode==="daily"){ const b=DAILY.patch[slot()]; n=b.n; size.patch=n;
+  if(mode==="daily"||mode==="archive"){ const b=DAILY.patch[slot()]; n=b.n; size.patch=n;
     p={n,clues:b.clues.map((c,i)=>Object.assign({},c,{col:PATCHCOLS[i%PATCHCOLS.length]})),
        rects:b.rects,tier:b.tier}; }
   else p=makePatch(n, patchLevel);
@@ -784,25 +890,29 @@ function newPatch(){
   cur={n,h:n,w:n,clues:p.clues,rects:p.rects,drawn:[],
        placed:Array.from({length:n},()=>Array(n).fill(-1)),drag:null};
   const blanks=p.clues.filter(c=>c.n===null).length;
-  $("#label").textContent=(mode==="daily"?dayName()+" · Plots":"Plots "+n+"×"+n)+" · level "+p.tier;
+  $("#label").textContent=(mode==="learn"?"Plots · practice":dayName()+" · Plots · level "+p.tier);
   $("#hint").textContent="Split the grid into rectangles, one badge each";
   drawPatch();
 }
 function clueAt(r,c){ return cur.clues.findIndex(x=>x.r===r&&x.c===c); }
 function drawPatch(){
+  if(!cur||!cur.drawn) return;      // we have left this board
   const n=cur.w,px=cellPx(n),b=$("#board");
   b.innerHTML=""; b.className="";
   const g=document.createElement("div");
   g.className="grid airy"; g.style.gridTemplateColumns=`repeat(${n},${px}px)`;
   b.style.width=(n*px+3)+"px";
+  const cells={};
   for(let r=0;r<cur.h;r++)for(let c=0;c<n;c++){
     const key=r+","+c, pi=cur.placed[r][c];
     const d=document.createElement("div");
     d.className="cell"+(errs.has(key)?" err":"")+(area.has(key)?" area":"")+(tips.has(key)?" tip":"");
     d.style.height=px+"px"; d.dataset.r=r; d.dataset.c=c;
+    cells[key]=d;
     if(pi>=0){
       const owner=cur.drawn[pi][4];
-      d.style.background=cur.clues[owner].col+"33";
+      d.style.background=cur.clues[owner].col+"52";
+      if(pi===cur.freshRect) d.classList.add("filled");   // only the new one animates
     }
     edgeStyle(d,key,area); animate(d,r,c,key);
     const ci=clueAt(r,c);
@@ -810,26 +920,53 @@ function drawPatch(){
     g.appendChild(d);
   }
   b.appendChild(g);
+  const box=b.getBoundingClientRect();
+  const measured = box.width>0 && cells["0,0"] && cells["0,0"].getBoundingClientRect().width>0;
+  const at=(r,c)=>{
+    if(measured){
+      const q=cells[r+","+c].getBoundingClientRect();
+      return {left:q.left-box.left, top:q.top-box.top, right:q.right-box.left, bottom:q.bottom-box.top};
+    }
+    // no layout yet — work it out instead. Exact, because every cell is px wide.
+    return {left:c*px+1.5, top:r*px+1.5, right:(c+1)*px+1.5, bottom:(r+1)*px+1.5};
+  };
   cur.drawn.forEach((R)=>{
     if(!R[2]) return;
     const [r0,c0,h,w,owner]=R;
+    const tl=at(r0,c0), br=at(r0+h-1,c0+w-1);
     const el=document.createElement("div");
-    el.className="rect"+(cur.freshRect===cur.drawn.indexOf(R)?" fresh":"");
+    const isNew = cur.freshRect===cur.drawn.indexOf(R);
+    el.className="rect"+(isNew?" fresh":"");
     el.style.borderColor=cur.clues[owner].col;
-    el.style.left=(c0*(px+2)+2)+"px"; el.style.top=(r0*(px+2)+2)+"px";
-    el.style.width=(w*px+(w-1)*2)+"px"; el.style.height=(h*px+(h-1)*2)+"px";
+    el.style.left=tl.left+"px";
+    el.style.top=tl.top+"px";
+    el.style.width=(br.right-tl.left)+"px";
+    el.style.height=(br.bottom-tl.top)+"px";
+    if(isNew && cur.growFrom){
+      el.style.setProperty("--ox", ((cur.growFrom[1]-c0+0.5)/w*100)+"%");
+      el.style.setProperty("--oy", ((cur.growFrom[0]-r0+0.5)/h*100)+"%");
+    }
     b.appendChild(el);
   });
+  requestAnimationFrame(()=>{ cur.freshRect=-1; });
   if(cur.drag&&cur.drag.cur){
     const [r1,c1]=cur.drag.start,[r2,c2]=cur.drag.cur;
-    const r0=Math.min(r1,r2),c0=Math.min(c1,c2),h=Math.abs(r1-r2)+1,w=Math.abs(c1-c2)+1;
+    const r0=Math.min(r1,r2),c0=Math.min(c1,c2);
+    const rE=Math.max(r1,r2),cE=Math.max(c1,c2);
+    const tl=at(r0,c0), br=at(rE,cE);
     const el=document.createElement("div"); el.className="sel";
-    el.style.left=(c0*(px+2)+2)+"px"; el.style.top=(r0*(px+2)+2)+"px";
-    el.style.width=(w*px+(w-1)*2)+"px"; el.style.height=(h*px+(h-1)*2)+"px";
+    el.style.left=tl.left+"px";
+    el.style.top=tl.top+"px";
+    el.style.width=(br.right-tl.left)+"px";
+    el.style.height=(br.bottom-tl.top)+"px";
     b.appendChild(el);
   }
 }
-function flashErr(){ drawPatch(); shakeBoard(String(Math.random())); setTimeout(()=>{clearErrors(); drawPatch();},1300); }
+function flashErr(){
+  drawPatch();
+  shakeBoard(String(Math.random()));
+  later(()=>{ clearErrors(); drawPatch(); }, 1300);
+}
 function commitRect(r1,c1,r2,c2){
   const r0=Math.min(r1,r2),c0=Math.min(c1,c2);
   const h=Math.abs(r1-r2)+1,w=Math.abs(c1-c2)+1;
@@ -849,7 +986,7 @@ function commitRect(r1,c1,r2,c2){
   cur.freshRect=idx;
   cur.drawn.push([r0,c0,h,w,inside[0]]);
   cells.forEach(([r,c])=>{ cur.placed[r][c]=idx; });
-  clearErrors(); drawPatch(); checkPatch();
+  clearErrors(); drawPatch(); checkPatch(); saveProgress();
 }
 function checkPatch(){
   let empty=0;
@@ -895,11 +1032,11 @@ $("#board").addEventListener("pointerdown",e=>{
       cur.drawn[pi]=[0,0,0,0,-1];
       clearErrors(); setMsg(""); drawPatch(); return;
     }
-    cur.drag={start:p,cur:p}; drawPatch(); e.preventDefault();
+    cur.drag={start:p,cur:p}; cur.growFrom=p; drawPatch(); e.preventDefault();
   }
 });
 $("#board").addEventListener("pointermove",e=>{
-  if(game==="path"&&cur.drag){ const p=patchCellAt(e.clientX,e.clientY); if(p) extend(p[0],p[1]); e.preventDefault(); }
+  if(game==="path"&&cur.drag){ const p=patchCellAt(e.clientX,e.clientY); if(p) walkTo(p[0],p[1]); e.preventDefault(); }
   if(game==="patch"&&cur.drag){ const p=patchCellAt(e.clientX,e.clientY);
     if(p){ cur.drag.cur=p; drawPatch(); } e.preventDefault(); }
 });
@@ -914,7 +1051,7 @@ window.addEventListener("pointerup",()=>{
 
 
 /* ================= home, settings, sound ================= */
-const state={streak:0,best:0,done:{},results:{},sound:true,dark:null,stats:false,code:"—",log:[],lastDay:null,creditedDay:null};
+const state={streak:0,best:0,done:{},results:{},prog:{},sound:true,dark:null,stats:false,code:"—",log:[],lastDay:null,creditedDay:null};
 const SAVE_KEY="quadle_v1";
 let memSave=null;
 function saveState(){
@@ -1017,17 +1154,24 @@ const BLURB={tango:"Balance suns and stars",crown:"One crown per colour",
 function renderHome(){
   const done=["tango","crown","path","patch"].filter(isDone).length;
   $("#streakBig").textContent=state.streak;
-  $("#streakLbl").textContent = state.streak===1?"day streak":"day streak";
+  $("#streakLbl").textContent = state.streak===1 ? "day" : "days";
   $("#dayLabel").textContent = dayName()+" · board "+(slot()+1)+" of "+DAILY.days;
   $("#streakSub").textContent = done===4 ? "All four done today"
                               : done ? done+" of 4 done today" : "Nothing played today";
+  /* Seven days shown at a time. A filled star is a day where all four were
+     finished. Past seven, the window slides so you always see the latest week. */
   const dots=$("#streakDots"); dots.innerHTML="";
-  ["M","T","W","T","F","S","S"].forEach((d,i)=>{
+  const block=Math.floor(Math.max(state.streak-1,0)/7)*7;
+  const doneInBlock=Math.min(state.streak-block, 7);
+  for(let i=0;i<7;i++){
     const el=document.createElement("i");
-    el.textContent=d;
-    if(i < Math.min(state.streak,7)) el.className="on";
+    const dayNo=block+i+1;
+    const filled = i < doneInBlock;
+    el.className = filled ? "on" : "";
+    el.innerHTML = (filled?"★":"☆")+"<b>"+dayNo+"</b>";
+    if(i===doneInBlock && state.streak>0) el.classList.add("next");
     dots.appendChild(el);
-  });
+  }
   const wrap=$("#cards"); wrap.innerHTML="";
   for(const key of ["tango","crown","path","patch"]){
     const g=GAMES[key];
@@ -1046,7 +1190,7 @@ function renderHome(){
 function markSolved(){
   const s=((Date.now()-t0)/1000)|0;
   logStop(true);
-  if(mode!=="daily") return;                 // practice never touches the streak
+  if(mode!=="daily") return;                 // learning never touches the streak
   state.results=state.results||{};
   state.results[game]=((s/60)|0)+":"+String(s%60).padStart(2,"0");
   if(state.done[game]) return;
@@ -1093,22 +1237,19 @@ $("#restoreCode").onclick=()=>{
 };
 $("#shareBtn").onclick=()=>{ blip(600,.07,"triangle"); openShare(); };
 $("#practiceBtn").onclick=()=>{
-  const panel=document.createElement("div"); panel.id="setWrap";
-  panel.innerHTML='<div class="panel"><div class="panelhead"><h2>Practice</h2>'+
-    '<button class="icon" id="closeP">✕</button></div>'+
-    '<p class="pnote">Endless boards, any size, any level. Nothing here counts '+
-    'toward your streak — today\'s four are separate.</p><div id="pcards"></div></div>';
-  document.getElementById("root").appendChild(panel);
-  panel.querySelector("#closeP").onclick=()=>panel.remove();
-  panel.onclick=e=>{ if(e.target===panel) panel.remove(); };
-  const w=panel.querySelector("#pcards");
-  for(const k of ["tango","crown","path","patch"]){
-    const b=document.createElement("button");
-    b.className="ghost"; b.style.width="100%"; b.style.marginTop="8px";
-    b.textContent=GAMES[k].name;
-    b.onclick=()=>{ panel.remove(); openGame(k,"practice"); };
-    w.appendChild(b);
-  }
+  panel("Learn the rules", (body,p)=>{
+    const note=document.createElement("p"); note.className="pnote";
+    note.textContent="One small board for each game, to get the hang of it. "+
+      "These do not count toward your streak. For more puzzles, the Archive has every past day.";
+    body.appendChild(note);
+    for(const k of ["tango","crown","path","patch"]){
+      const b=document.createElement("button");
+      b.className="ghost"; b.style.width="100%"; b.style.marginTop="8px";
+      b.textContent=GAMES[k].name;
+      b.onclick=()=>{ p.remove(); openGame(k,"learn"); };
+      body.appendChild(b);
+    }
+  });
 };
 
 function panel(title, build){
@@ -1187,6 +1328,49 @@ function rollOverDay(){
   saveState();
 }
 
+
+
+/* ================= keeping your board =================
+   A finished board should still be there tomorrow, and a half-done one should
+   be waiting where you left it. Both are saved per day, per game. */
+function progKey(){ return slot()+"|"+game; }
+function isCasual(){ return mode==="learn"; }
+function snapshot(){
+  if(!cur) return null;
+  if(game==="tango") return cur.state.map(r=>r.slice());
+  if(game==="crown") return cur.marks.map(r=>r.slice());
+  if(game==="path")  return cur.path.map(p=>p.slice());
+  if(game==="patch") return cur.drawn.map(r=>r.slice());
+  return null;
+}
+function saveProgress(){
+  if(isCasual()||!cur) return;
+  const v=snapshot(); if(!v) return;
+  state.prog=state.prog||{};
+  state.prog[progKey()]={ v, solved:!!solved,
+                          sec:((Date.now()-t0)/1000)|0, hints:cur.hintsUsed||0 };
+  saveState();
+}
+function restoreProgress(){
+  if(isCasual()||!cur) return false;
+  const p=(state.prog||{})[progKey()];
+  if(!p||!p.v) return false;
+  if(game==="tango") cur.state=p.v.map(r=>r.slice());
+  if(game==="crown") cur.marks=p.v.map(r=>r.slice());
+  if(game==="path")  cur.path=p.v.map(x=>x.slice());
+  if(game==="patch"){
+    cur.drawn=p.v.map(r=>r.slice());
+    cur.placed=Array.from({length:cur.n},()=>Array(cur.n).fill(-1));
+    cur.drawn.forEach((R,i)=>{ if(!R[2]) return;
+      for(let r=R[0];r<R[0]+R[2];r++)for(let c=R[1];c<R[1]+R[3];c++) cur.placed[r][c]=i; });
+  }
+  cur.hintsUsed=p.hints||0;
+  cur.restoredSec=p.sec||0;
+  return true;
+}
+function runChecks(){
+  ({tango:checkTango,crown:checkCrown,path:checkPath,patch:checkPatch})[game]();
+}
 
 /* ================= how to play ================= */
 const RULES={
@@ -1278,15 +1462,19 @@ function openShare(){
 
 /* ================= WIRING ================= */
 function newPuzzle(){
+  newBoardToken();
+  clearTimeout(errTimer);
   solved=false; clearErrors(); tips=new Set(); setMsg(""); clearTimeout(errTimer);
   $("#board").innerHTML=""; $("#board").className="";
   theme();
   entering=true; touched=null; winning=false; shookFor="";
   ({tango:newTango,crown:newCrown,path:newPath,patch:newPatch})[game]();
   if(cur) cur.hintsUsed=0;
+  if(restoreProgress()){ redraw(); runChecks(); }
   paintHintBtn();
-  setTimeout(()=>{ entering=false; }, 60+ (size[game]||6)*2*22);
+  later(()=>{ entering=false; }, 60+ (size[game]||6)*2*22);
   startTimer();
+  if(cur && cur.restoredSec) t0 = Date.now() - cur.restoredSec*1000;
 }
 function resetPuzzle(){
   if(!cur) return;
@@ -1295,6 +1483,8 @@ function resetPuzzle(){
   if(game==="crown") cur.marks=Array.from({length:cur.n},()=>Array(cur.n).fill(0));
   if(game==="path")  cur.path=[];
   if(game==="patch"){ cur.drawn=[]; cur.placed=Array.from({length:cur.n},()=>Array(cur.n).fill(-1)); }
+  if(cur) cur.restoredSec=0;
+  if(!isCasual() && state.prog){ delete state.prog[progKey()]; saveState(); }
   entering=true; touched=null; winning=false; shookFor="";
   startTimer(); redraw();
   setTimeout(()=>{ entering=false; }, 60+(size[game]||6)*2*22);
@@ -1303,16 +1493,19 @@ const HINT_BUDGET=3;
 function openGame(g,m){
   game=g; mode=m||"daily"; theme();
   $("#home").hidden=true; $("#play").hidden=false;
-  const fixed = (mode!=="practice");
-  $("#newBtn").hidden=fixed; $("#sizeBtn").hidden=fixed;
+  if(mode==="learn"){
+    size.tango=6; size.crown=6; size.path=5; size.patch=5; patchLevel=1;
+  }
+  $("#newBtn").hidden=true; $("#sizeBtn").hidden=true;
   $("#cbBtn").hidden = (g!=="crown");
-  $("#modeTag").textContent = mode==="daily" ? "Today" : (mode==="archive" ? "Archive" : "Practice");
+  $("#modeTag").textContent = mode==="daily" ? "Today" : (mode==="archive" ? "Archive" : "Learn");
   $("#modeTag").className = mode==="daily" ? "tag" : "tag alt";
   newPuzzle();
+  if(mode==="learn") later(showRules, 250);
   if(mode==="daily" && isDone(game)) lockDone();
 }
 function hintsLeft(){
-  if(mode==="practice") return Infinity;
+  if(mode==="learn") return Infinity;
   return Math.max(0, HINT_BUDGET - (cur && cur.hintsUsed || 0));
 }
 function paintHintBtn(){
@@ -1323,10 +1516,14 @@ function paintHintBtn(){
 }
 function lockDone(){
   solved=true;
-  setMsg("Done for today. Come back tomorrow — or try Practice.");
+  const p=(state.prog||{})[progKey()];
+  const t=(p && p.sec!==undefined) ? ("Solved in "+(((p.sec/60)|0)+":"+String(p.sec%60).padStart(2,"0"))+".") : "Solved.";
+  setMsg(t+" Come back tomorrow.");
   paintHintBtn();
 }
 function goHome(){
+  newBoardToken();
+  clearTimeout(errTimer);
   $("#play").hidden=true; $("#home").hidden=false;
   theme(); renderHome();
 }
